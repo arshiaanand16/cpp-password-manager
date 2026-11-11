@@ -1,3 +1,6 @@
+#include<vector>
+#include<sstream>
+#include<iterator>
 #include<sodium.h>
 #include<iostream>
 #include<fstream>
@@ -5,6 +8,8 @@
 #include<string>
 #include<vector>
 using namespace std;
+vector<pair<string,string>> entries;
+unsigned char vaultKey[crypto_secretbox_KEYBYTES];
 void display(const string& msg){
     cout<<msg<<endl;
 }
@@ -18,87 +23,88 @@ void displayMenu(){
     display("6. EXIT");
     display("Enter your choice: ");
 }
+bool deriveKey(const string& pw,const unsigned char* salt){
+    return crypto_pwhash(vaultKey,sizeof vaultKey,pw.c_str(),pw.length(),salt,
+        crypto_pwhash_OPSLIMIT_INTERACTIVE,crypto_pwhash_MEMLIMIT_INTERACTIVE,
+        crypto_pwhash_ALG_DEFAULT)==0;
+}
+
+void saveVault(){
+    string plain;
+    for(const auto& e:entries){
+        plain+=e.first+" "+e.second+"\n";
+    }
+    vector<unsigned char> out(crypto_secretbox_NONCEBYTES+plain.size()+crypto_secretbox_MACBYTES);
+    randombytes_buf(out.data(),crypto_secretbox_NONCEBYTES);
+    crypto_secretbox_easy(out.data()+crypto_secretbox_NONCEBYTES,
+        (const unsigned char*)plain.data(),plain.size(),
+        out.data(),vaultKey);
+    ofstream file("vault.dat",ios::binary);
+    file.write((const char*)out.data(),out.size());
+}
+
+bool loadVault(){
+    entries.clear();
+    ifstream file("vault.dat",ios::binary);
+    if(!file.is_open()){
+        return true;
+    }
+    vector<unsigned char> data((istreambuf_iterator<char>(file)),istreambuf_iterator<char>());
+    if(data.size()<crypto_secretbox_NONCEBYTES+crypto_secretbox_MACBYTES){
+        return false;
+    }
+    size_t cipherLen=data.size()-crypto_secretbox_NONCEBYTES;
+    vector<unsigned char> plain(cipherLen);
+    if(crypto_secretbox_open_easy(plain.data(),data.data()+crypto_secretbox_NONCEBYTES,
+        cipherLen,data.data(),vaultKey)!=0){
+        return false;
+    }
+    string text(plain.begin(),plain.begin()+(cipherLen-crypto_secretbox_MACBYTES));
+    istringstream in(text);
+    string site,password;
+    while(in>>site>>password){
+        entries.push_back({site,password});
+    }
+    return true;
+}
 void savePassword(const string& site,const string& password){
-    std::ofstream file("passwords.txt",std::ios::app);
-    if(file.is_open()){
-        file<<site<<" "<<password <<"\n";
-        file.close();
-        display("password saved successfully!");
-    }
-    else{
-    std::cerr<<"Error: Unable to open file for writing.\n";
-    }
+    entries.push_back({site,password});
+    saveVault();
+    display("password saved successfully!");
 }
 void viewPassword(){
-    std::ifstream file("passwords.txt");
-    if(file.is_open()){
-        string site,password;
-        display("\nSaved Passwords:");
-        while(file>>site>>password){
-            cout<<" Site: "<<site <<", Password: "<<password<<"\n";
-        }
-        file.close();
-    } else{
-        std::cerr<<"\n[System] No passwords saved yet.\n";
+    if(entries.empty()){
+        display("\n[System] No passwords saved yet.");
+        return;
+    }
+    display("\nSaved Passwords:");
+    for(const auto& e:entries){
+        cout<<" Site: "<<e.first<<", Password: "<<e.second<<"\n";
     }
 }
 void searchPassword(const string& target){
-    std::ifstream file("passwords.txt");
-    if(!file.is_open()){
-        std::cerr<<"\n[System No passwords saved yet.\n]";
-        return;
-    }
-    string site,password;
-    bool found=false;
-    while(file>>site>>password){
-        if(site==target){
-            cout<<" Site: "<<site<<", Password: "<<password<<"\n";
-            found=true;
+    for(const auto& e:entries){
+        if(e.first==target){
+            cout<<" Site: "<<e.first<<", Password: "<<e.second<<"\n";
+            return;
         }
     }
-    file.close();
-    if(!found){
-        display("\n[System] No entry found for that site.");
-    }
+    display("\n[System] No entry found for that site.");
 }
 void deletePassword(const string& target){
-    std::ifstream in("passwords.txt");
-    if(!in.is_open()){
-        std::cerr<<"\n[System] No passwords saved yet.\n";
-        return;
-    }
-    vector<pair<string,string>> entries;
-    string site,password;
-    bool found=false;
-    while(in>>site>>password){
-        if(site==target){
-            found=true;
-            continue;
+    for(size_t i=0;i<entries.size();i++){
+        if(entries[i].first==target){
+            entries.erase(entries.begin()+i);
+            saveVault();
+            display("\n[System] Entry deleted successfully!");
+            return;
         }
-        entries.push_back({site,password});
     }
-    in.close();
-
-    if(!found){
-        display("\n[System] No entry found for that site.");
-        return;
-    }
-
-    std::ofstream out("passwords.txt");
-    for(const auto& e:entries){
-        out<<e.first<<" "<<e.second<<"\n";
-    }
-    out.close();
-    display("\n[System] Entry deleted successfully!");
+    display("\n[System] No entry found for that site.");
 }
 bool siteExists(const string& target){
-    std::ifstream file("passwords.txt");
-    if(!file.is_open()){
-        return false;
-    }
-    string site,password;
-    while(file>>site>>password){
-        if(site==target){
+    for(const auto& e:entries){
+        if(e.first==target){
             return true;
         }
     }
@@ -106,34 +112,15 @@ bool siteExists(const string& target){
 }
 
 void updatePassword(const string& target,const string& newPassword){
-    std::ifstream in("passwords.txt");
-    if(!in.is_open()){
-        std::cerr<<"\n[System] No passwords saved yet.\n";
-        return;
-    }
-    vector<pair<string,string>> entries;
-    string site,password;
-    bool found=false;
-    while(in>>site>>password){
-        if(site==target){
-            password=newPassword;
-            found=true;
+    for(auto& e:entries){
+        if(e.first==target){
+            e.second=newPassword;
+            saveVault();
+            display("\n[System] Password updated successfully!");
+            return;
         }
-        entries.push_back({site,password});
     }
-    in.close();
-
-    if(!found){
-        display("\n[System] No entry found for that site.");
-        return;
-    }
-
-    std::ofstream out("passwords.txt");
-    for(const auto& e:entries){
-        out<<e.first<<" "<<e.second<<"\n";
-    }
-    out.close();
-    display("\n[System] Password updated successfully!");
+    display("\n[System] No entry found for that site.");
 }
 bool masterExists(){
     std::ifstream file("master.dat");
@@ -167,6 +154,17 @@ bool setupMaster(){
         return false;
     }
 
+    unsigned char salt[crypto_pwhash_SALTBYTES];
+    randombytes_buf(salt,sizeof salt);
+    ofstream saltFile("salt.dat",ios::binary);
+    saltFile.write((const char*)salt,sizeof salt);
+    saltFile.close();
+
+    if(!deriveKey(pw1,salt)){
+        std::cerr<<"\n[System] Error: could not create the encryption key.\n";
+        return false;
+    }
+
     std::ofstream file("master.dat");
     if(!file.is_open()){
         std::cerr<<"\n[System] Error: could not save the master password.\n";
@@ -179,16 +177,28 @@ bool setupMaster(){
 }
 
 bool login(){
-    std::ifstream file("master.dat");
+    ifstream file("master.dat");
     string stored;
     file>>stored;
     file.close();
+
+    unsigned char salt[crypto_pwhash_SALTBYTES];
+    ifstream saltFile("salt.dat",ios::binary);
+    saltFile.read((char*)salt,sizeof salt);
+    if(saltFile.gcount()!=(streamsize)sizeof salt){
+        std::cerr<<"\n[System] salt.dat is missing or damaged.\n";
+        return false;
+    }
 
     for(int attempt=1;attempt<=3;attempt++){
         string input;
         display("\nEnter master password: ");
         cin>>input;
         if(crypto_pwhash_str_verify(stored.c_str(),input.c_str(),input.length())==0){
+            if(!deriveKey(input,salt)){
+                std::cerr<<"\n[System] Error: could not create the encryption key.\n";
+                return false;
+            }
             display("\n[System] Login successful!");
             return true;
         }
@@ -209,6 +219,10 @@ if(!masterExists()){
     }
 } else if(!login()){
     display("\n[System] Too many failed attempts. Exiting.");
+    return 1;
+}
+if(!loadVault()){
+    std::cerr<<"\n[System] Could not decrypt vault.dat. It may be corrupted.\n";
     return 1;
 }
     do{
@@ -270,5 +284,6 @@ if(!masterExists()){
         
 
     }while(choice!=6);
+    sodium_memzero(vaultKey,sizeof vaultKey);
     return 0;
 }

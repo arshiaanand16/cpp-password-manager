@@ -1,3 +1,5 @@
 passwords.txt
 master.dat
+salt.dat
+vault.dat
 *.exe
