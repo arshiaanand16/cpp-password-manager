@@ -1,3 +1,4 @@
+#include<sodium.h>
 #include<iostream>
 #include<fstream>
 #include<limits>
@@ -134,9 +135,82 @@ void updatePassword(const string& target,const string& newPassword){
     out.close();
     display("\n[System] Password updated successfully!");
 }
+bool masterExists(){
+    std::ifstream file("master.dat");
+    return file.good();
+}
+
+bool setupMaster(){
+    string pw1,pw2;
+    display("\n[System] First time setup: create a master password.");
+    while(true){
+        display("Create master password (minimum 8 characters): ");
+        cin>>pw1;
+        if(pw1.length()<8){
+            display("\n[System] Too short. Try again.");
+            continue;
+        }
+        display("Confirm master password: ");
+        cin>>pw2;
+        if(pw1!=pw2){
+            display("\n[System] Passwords do not match. Try again.");
+            continue;
+        }
+        break;
+    }
+
+    char hash[crypto_pwhash_STRBYTES];
+    if(crypto_pwhash_str(hash,pw1.c_str(),pw1.length(),
+        crypto_pwhash_OPSLIMIT_INTERACTIVE,
+        crypto_pwhash_MEMLIMIT_INTERACTIVE)!=0){
+        std::cerr<<"\n[System] Error: could not hash the password.\n";
+        return false;
+    }
+
+    std::ofstream file("master.dat");
+    if(!file.is_open()){
+        std::cerr<<"\n[System] Error: could not save the master password.\n";
+        return false;
+    }
+    file<<hash;
+    file.close();
+    display("\n[System] Master password created!");
+    return true;
+}
+
+bool login(){
+    std::ifstream file("master.dat");
+    string stored;
+    file>>stored;
+    file.close();
+
+    for(int attempt=1;attempt<=3;attempt++){
+        string input;
+        display("\nEnter master password: ");
+        cin>>input;
+        if(crypto_pwhash_str_verify(stored.c_str(),input.c_str(),input.length())==0){
+            display("\n[System] Login successful!");
+            return true;
+        }
+        display("\n[System] Wrong password. Attempts left: "+to_string(3-attempt));
+    }
+    return false;
+}
 int main(){
     int choice;
     string site,password;
+    if(sodium_init()<0){
+    std::cerr<<"[System] Failed to start libsodium.\n";
+    return 1;
+}
+if(!masterExists()){
+    if(!setupMaster()){
+        return 1;
+    }
+} else if(!login()){
+    display("\n[System] Too many failed attempts. Exiting.");
+    return 1;
+}
     do{
         displayMenu();
             cin>> choice;
