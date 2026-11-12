@@ -8,7 +8,6 @@
 #include<fstream>
 #include<limits>
 #include<string>
-#include<vector>
 using namespace std;
 vector<pair<string,string>> entries;
 unsigned char vaultKey[crypto_secretbox_KEYBYTES];
@@ -18,7 +17,7 @@ void display(const string& msg){
 void displayMenu(){
     display("\nPassword Manager");
     display("1. Add password");
-    display("2. View password");
+    display("2. View passwords");
     display("3. Search password");
     display("4. Update password");
     display("5. Delete password");
@@ -149,7 +148,7 @@ bool setupMaster(){
             continue;
         }
         display("Confirm master password: ");
-       readHidden(pw2);
+        readHidden(pw2);
         if(pw1!=pw2){
             display("\n[System] Passwords do not match. Try again.");
             continue;
