@@ -1,3 +1,5 @@
+#define WIN32_LEAN_AND_MEAN
+#include<windows.h>
 #include<vector>
 #include<sstream>
 #include<iterator>
@@ -22,6 +24,15 @@ void displayMenu(){
     display("5. Delete password");
     display("6. EXIT");
     display("Enter your choice: ");
+}
+void readHidden(string& out){
+    HANDLE h=GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode=0;
+    GetConsoleMode(h,&mode);
+    SetConsoleMode(h,mode & ~ENABLE_ECHO_INPUT);
+    cin>>out;
+    SetConsoleMode(h,mode);
+    cout<<endl;
 }
 bool deriveKey(const string& pw,const unsigned char* salt){
     return crypto_pwhash(vaultKey,sizeof vaultKey,pw.c_str(),pw.length(),salt,
@@ -132,13 +143,13 @@ bool setupMaster(){
     display("\n[System] First time setup: create a master password.");
     while(true){
         display("Create master password (minimum 8 characters): ");
-        cin>>pw1;
+        readHidden(pw1);
         if(pw1.length()<8){
             display("\n[System] Too short. Try again.");
             continue;
         }
         display("Confirm master password: ");
-        cin>>pw2;
+       readHidden(pw2);
         if(pw1!=pw2){
             display("\n[System] Passwords do not match. Try again.");
             continue;
@@ -193,7 +204,7 @@ bool login(){
     for(int attempt=1;attempt<=3;attempt++){
         string input;
         display("\nEnter master password: ");
-        cin>>input;
+        readHidden(input);
         if(crypto_pwhash_str_verify(stored.c_str(),input.c_str(),input.length())==0){
             if(!deriveKey(input,salt)){
                 std::cerr<<"\n[System] Error: could not create the encryption key.\n";
